@@ -1,0 +1,59 @@
+<!-- <!DOCTYPE html>
+<html>
+
+<head>
+    <title>Add New User</title>
+</head>
+
+<body>
+    <h2>Add New Employee/Admin</h2>
+    <form method="post">
+        <label>Username:</label><br>
+        <input type="text" name="username" required><br><br>
+        <label>Password:</label><br>
+        <input type="password" name="password" required><br><br>
+        <label>Role:</label><br>
+        <select name="role" required>
+      <option value="employee">Employee</option>
+      <option value="admin">Admin</option>
+    </select><br><br>
+        <button type="submit">Add User</button>
+    </form>
+    <br>
+    <a href="/dashboard">← Back to Dashboard</a>
+</body>
+
+</html> -->
+
+{% extends 'base.html' %} {% block title %}Add User{% endblock %} {% block content %}
+<div class="container mt-5">
+    <div class="card shadow p-4">
+        <h3 class="mb-4 text-center text-primary">Add New User</h3>
+        <form method="POST" action="/add_user">
+            <div class="mb-3">
+                <label for="username" class="form-label">Username</label>
+                <input type="text" name="username" class="form-control" required placeholder="Enter username">
+            </div>
+
+            <div class="mb-3">
+                <label for="password" class="form-label">Password</label>
+                <input type="password" name="password" class="form-control" required placeholder="Enter password">
+            </div>
+
+            <div class="mb-3">
+                <label for="role" class="form-label">Role</label>
+                <select name="role" class="form-select" required>
+                    <option value="" disabled selected>Choose role</option>
+                    <option value="admin">Admin</option>
+                    <option value="employee">Employee</option>
+                </select>
+            </div>
+
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-success">Add User</button>
+                <a href="/dashboard" class="btn btn-outline-secondary">Back to Dashboard</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
