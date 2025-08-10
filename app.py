@@ -1300,6 +1300,86 @@ def clock_out():
 # Employees: only own logs
 # Admins: all logs (with optional filters)
 # ----------------------
+# @app.route('/export_csv')
+# def export_csv():
+#     if 'user_id' not in session:
+#         return redirect(url_for('index'))
+
+#     current_user = User.query.get(session['user_id'])
+#     is_admin = (current_user.role == 'admin')
+
+#     output = io.StringIO()
+#     writer = csv.writer(output)
+
+#     if not is_admin:
+#         # EMPLOYEE: only their own logs
+#         logs = (TimeLog.query
+#                 .filter_by(user_id=current_user.id)
+#                 .options(joinedload(TimeLog.user))
+#                 .order_by(TimeLog.clock_in.desc())
+#                 .all())
+
+#         writer.writerow(['Username', 'Clock In', 'Clock Out'])
+#         for log in logs:
+#             ci = log.clock_in.strftime('%Y-%m-%d %H:%M:%S') if log.clock_in else ''
+#             co = log.clock_out.strftime('%Y-%m-%d %H:%M:%S') if log.clock_out else ''
+#             writer.writerow([current_user.username, ci, co])
+
+#         output.seek(0)
+#         return send_file(
+#             io.BytesIO(output.getvalue().encode()),
+#             mimetype='text/csv',
+#             as_attachment=True,
+#             download_name=f'timelogs_{current_user.username}.csv'
+#         )
+
+#     # ADMIN: with optional filters (date range + employee)
+#     start_date_str = request.args.get('start_date', '').strip()
+#     end_date_str   = request.args.get('end_date', '').strip()
+#     employee_q     = request.args.get('employee', '').strip()
+
+#     def parse_date(d):
+#         try:
+#             return datetime.strptime(d, "%Y-%m-%d").date()
+#         except:
+#             return None
+
+#     start_dt = end_dt = None
+#     if start_date_str:
+#         sd = parse_date(start_date_str)
+#         if sd: start_dt = datetime.combine(sd, time.min)
+#     if end_date_str:
+#         ed = parse_date(end_date_str)
+#         if ed: end_dt = datetime.combine(ed, time.max)
+
+#     logs_query = (TimeLog.query
+#                   .join(User, TimeLog.user_id == User.id)
+#                   .options(joinedload(TimeLog.user)))
+#     if employee_q:
+#         logs_query = logs_query.filter(User.username.ilike(f"%{employee_q}%"))
+#     if start_dt and end_dt:
+#         logs_query = logs_query.filter(and_(TimeLog.clock_in >= start_dt, TimeLog.clock_in <= end_dt))
+#     elif start_dt:
+#         logs_query = logs_query.filter(TimeLog.clock_in >= start_dt)
+#     elif end_dt:
+#         logs_query = logs_query.filter(TimeLog.clock_in <= end_dt)
+
+#     logs = logs_query.order_by(TimeLog.clock_in.desc()).all()
+
+#     writer.writerow(['Username', 'Clock In', 'Clock Out'])
+#     for log in logs:
+#         ci = log.clock_in.strftime('%Y-%m-%d %H:%M:%S') if log.clock_in else ''
+#         co = log.clock_out.strftime('%Y-%m-%d %H:%M:%S') if log.clock_out else ''
+#         writer.writerow([log.user.username, ci, co])
+
+#     output.seek(0)
+#     return send_file(
+#         io.BytesIO(output.getvalue().encode()),
+#         mimetype='text/csv',
+#         as_attachment=True,
+#         download_name='timelogs_admin.csv'
+#     )
+
 @app.route('/export_csv')
 def export_csv():
     if 'user_id' not in session:
@@ -1308,41 +1388,46 @@ def export_csv():
     current_user = User.query.get(session['user_id'])
     is_admin = (current_user.role == 'admin')
 
+    # Helpers
+    def dtfmt(dt):
+        return dt.strftime('%Y-%m-%d %H:%M:%S') if dt else ''
+
     output = io.StringIO()
-    writer = csv.writer(output)
+    w = csv.writer(output)
 
     if not is_admin:
-        # EMPLOYEE: only their own logs
+        # -------- EMPLOYEE CSV --------
+        # Summary (today/week/OT + status)
+        my_today, my_today_ot, my_week, my_week_ot, my_clocked_in = totals_for_user_today_and_week(current_user.id)
+        w.writerow(['My Summary'])
+        w.writerow(['Status', 'Today (min)', 'OT Today', 'Week (min)', 'OT Week'])
+        w.writerow(['Clocked In' if my_clocked_in else 'Clocked Out', my_today, my_today_ot, my_week, my_week_ot])
+        w.writerow([])
+
+        # Logs
         logs = (TimeLog.query
                 .filter_by(user_id=current_user.id)
                 .options(joinedload(TimeLog.user))
                 .order_by(TimeLog.clock_in.desc())
                 .all())
-
-        writer.writerow(['Username', 'Clock In', 'Clock Out'])
+        w.writerow(['My Time Logs'])
+        w.writerow(['Username', 'Clock In', 'Clock Out'])
         for log in logs:
-            ci = log.clock_in.strftime('%Y-%m-%d %H:%M:%S') if log.clock_in else ''
-            co = log.clock_out.strftime('%Y-%m-%d %H:%M:%S') if log.clock_out else ''
-            writer.writerow([current_user.username, ci, co])
-
+            w.writerow([current_user.username, dtfmt(log.clock_in), dtfmt(log.clock_out)])
         output.seek(0)
-        return send_file(
-            io.BytesIO(output.getvalue().encode()),
-            mimetype='text/csv',
-            as_attachment=True,
-            download_name=f'timelogs_{current_user.username}.csv'
-        )
+        return send_file(io.BytesIO(output.getvalue().encode()),
+                         mimetype='text/csv', as_attachment=True,
+                         download_name=f'timelogs_{current_user.username}.csv')
 
-    # ADMIN: with optional filters (date range + employee)
+    # -------- ADMIN CSV --------
+    # Read filters
     start_date_str = request.args.get('start_date', '').strip()
     end_date_str   = request.args.get('end_date', '').strip()
     employee_q     = request.args.get('employee', '').strip()
 
     def parse_date(d):
-        try:
-            return datetime.strptime(d, "%Y-%m-%d").date()
-        except:
-            return None
+        try: return datetime.strptime(d, "%Y-%m-%d").date()
+        except: return None
 
     start_dt = end_dt = None
     if start_date_str:
@@ -1352,33 +1437,115 @@ def export_csv():
         ed = parse_date(end_date_str)
         if ed: end_dt = datetime.combine(ed, time.max)
 
-    logs_query = (TimeLog.query
-                  .join(User, TimeLog.user_id == User.id)
-                  .options(joinedload(TimeLog.user)))
+    # Team summary (today/week, unfiltered by design—same as dashboard cards)
+    w.writerow(['Team Summary (Today & This Week)'])
+    w.writerow(['Employee', 'Status', 'Today (min)', 'OT Today', 'Week (min)', 'OT Week'])
+    for u in User.query.order_by(User.username.asc()).all():
+        tmin, tot, wmin, wot, cnow = totals_for_user_today_and_week(u.id)
+        w.writerow([u.username, 'In' if cnow else 'Out', tmin, tot, wmin, wot])
+    w.writerow([])
+
+    # Filtered time logs (respect filters)
+    logs_q = (TimeLog.query
+              .join(User, TimeLog.user_id == User.id)
+              .options(joinedload(TimeLog.user)))
     if employee_q:
-        logs_query = logs_query.filter(User.username.ilike(f"%{employee_q}%"))
+        logs_q = logs_q.filter(User.username.ilike(f"%{employee_q}%"))
     if start_dt and end_dt:
-        logs_query = logs_query.filter(and_(TimeLog.clock_in >= start_dt, TimeLog.clock_in <= end_dt))
+        logs_q = logs_q.filter(and_(TimeLog.clock_in >= start_dt, TimeLog.clock_in <= end_dt))
     elif start_dt:
-        logs_query = logs_query.filter(TimeLog.clock_in >= start_dt)
+        logs_q = logs_q.filter(TimeLog.clock_in >= start_dt)
     elif end_dt:
-        logs_query = logs_query.filter(TimeLog.clock_in <= end_dt)
+        logs_q = logs_q.filter(TimeLog.clock_in <= end_dt)
+    logs = logs_q.order_by(TimeLog.clock_in.desc()).all()
 
-    logs = logs_query.order_by(TimeLog.clock_in.desc()).all()
-
-    writer.writerow(['Username', 'Clock In', 'Clock Out'])
+    w.writerow(['Filtered Time Logs'])
+    w.writerow(['Username', 'Clock In', 'Clock Out'])
     for log in logs:
-        ci = log.clock_in.strftime('%Y-%m-%d %H:%M:%S') if log.clock_in else ''
-        co = log.clock_out.strftime('%Y-%m-%d %H:%M:%S') if log.clock_out else ''
-        writer.writerow([log.user.username, ci, co])
+        w.writerow([log.user.username, dtfmt(log.clock_in), dtfmt(log.clock_out)])
 
     output.seek(0)
-    return send_file(
-        io.BytesIO(output.getvalue().encode()),
-        mimetype='text/csv',
-        as_attachment=True,
-        download_name='timelogs_admin.csv'
-    )
+    return send_file(io.BytesIO(output.getvalue().encode()),
+                     mimetype='text/csv', as_attachment=True,
+                     download_name='timelogs_admin.csv')
+
+
+# @app.route('/export_pdf')
+# def export_pdf():
+#     if 'user_id' not in session:
+#         return redirect(url_for('index'))
+
+#     current_user = User.query.get(session['user_id'])
+#     is_admin = (current_user.role == 'admin')
+
+#     pdf = FPDF()
+#     pdf.add_page()
+#     pdf.set_font('Arial', 'B', 13)
+
+#     if not is_admin:
+#         # EMPLOYEE: only their own logs
+#         pdf.cell(0, 10, pdf_safe(f"Time Logs - {current_user.username}"), ln=True, align='C')
+#         logs = (TimeLog.query
+#                 .filter_by(user_id=current_user.id)
+#                 .options(joinedload(TimeLog.user))
+#                 .order_by(TimeLog.clock_in.desc())
+#                 .all())
+
+#         pdf.set_font('Arial', '', 10)
+#         for log in logs:
+#             ci = log.clock_in.strftime('%Y-%m-%d %H:%M:%S') if log.clock_in else ''
+#             co = log.clock_out.strftime('%Y-%m-%d %H:%M:%S') if log.clock_out else '-'
+#             pdf.cell(0, 8, pdf_safe(f"{ci}  |  {co}"), ln=True)
+
+#         path = f"timelogs_{current_user.username}.pdf"
+#         pdf.output(path)
+#         return send_file(path, as_attachment=True)
+
+#     # ADMIN: with optional filters (date range + employee)
+#     start_date_str = request.args.get('start_date', '').strip()
+#     end_date_str   = request.args.get('end_date', '').strip()
+#     employee_q     = request.args.get('employee', '').strip()
+
+#     def parse_date(d):
+#         try:
+#             return datetime.strptime(d, "%Y-%m-%d").date()
+#         except:
+#             return None
+
+#     start_dt = end_dt = None
+#     if start_date_str:
+#         sd = parse_date(start_date_str)
+#         if sd: start_dt = datetime.combine(sd, time.min)
+#     if end_date_str:
+#         ed = parse_date(end_date_str)
+#         if ed: end_dt = datetime.combine(ed, time.max)
+
+#     logs_query = (TimeLog.query
+#                   .join(User, TimeLog.user_id == User.id)
+#                   .options(joinedload(TimeLog.user)))
+#     if employee_q:
+#         logs_query = logs_query.filter(User.username.ilike(f"%{employee_q}%"))
+#     if start_dt and end_dt:
+#         logs_query = logs_query.filter(and_(TimeLog.clock_in >= start_dt, TimeLog.clock_in <= end_dt))
+#     elif start_dt:
+#         logs_query = logs_query.filter(TimeLog.clock_in >= start_dt)
+#     elif end_dt:
+#         logs_query = logs_query.filter(TimeLog.clock_in <= end_dt)
+
+#     logs = logs_query.order_by(TimeLog.clock_in.desc()).all()
+
+#     pdf.cell(0, 10, pdf_safe("Employee Time Logs"), ln=True, align='C')
+#     pdf.set_font('Arial', '', 10)
+#     for log in logs:
+#         uname = log.user.username
+#         ci = log.clock_in.strftime('%Y-%m-%d %H:%M:%S') if log.clock_in else ''
+#         co = log.clock_out.strftime('%Y-%m-%d %H:%M:%S') if log.clock_out else '-'
+#         pdf.cell(0, 8, pdf_safe(f"{uname}: {ci}  |  {co}"), ln=True)
+
+#     path = 'timelogs_admin.pdf'
+#     pdf.output(path)
+#     return send_file(path, as_attachment=True)
+
 
 @app.route('/export_pdf')
 def export_pdf():
@@ -1388,39 +1555,51 @@ def export_pdf():
     current_user = User.query.get(session['user_id'])
     is_admin = (current_user.role == 'admin')
 
+    def dtfmt(dt): return dt.strftime('%Y-%m-%d %H:%M:%S') if dt else ''
+
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font('Arial', 'B', 13)
+    pdf.set_font('Arial', 'B', 14)
 
     if not is_admin:
-        # EMPLOYEE: only their own logs
-        pdf.cell(0, 10, pdf_safe(f"Time Logs - {current_user.username}"), ln=True, align='C')
+        # -------- EMPLOYEE PDF --------
+        pdf.cell(0, 10, pdf_safe(f"Timecard — {current_user.username}"), ln=True, align='C')
+
+        # Summary
+        pdf.set_font('Arial', 'B', 12)
+        pdf.cell(0, 8, pdf_safe("My Summary"), ln=True)
+        my_today, my_today_ot, my_week, my_week_ot, my_clocked_in = totals_for_user_today_and_week(current_user.id)
+        pdf.set_font('Arial', '', 10)
+        pdf.cell(0, 6, pdf_safe(f"Status: {'Clocked In' if my_clocked_in else 'Clocked Out'}"), ln=True)
+        pdf.cell(0, 6, pdf_safe(f"Today (min): {my_today}   OT Today: {my_today_ot}"), ln=True)
+        pdf.cell(0, 6, pdf_safe(f"This Week (min): {my_week}   OT Week: {my_week_ot}"), ln=True)
+        pdf.ln(4)
+
+        # Logs
+        pdf.set_font('Arial', 'B', 12)
+        pdf.cell(0, 8, pdf_safe("My Time Logs"), ln=True)
         logs = (TimeLog.query
                 .filter_by(user_id=current_user.id)
                 .options(joinedload(TimeLog.user))
                 .order_by(TimeLog.clock_in.desc())
                 .all())
-
         pdf.set_font('Arial', '', 10)
         for log in logs:
-            ci = log.clock_in.strftime('%Y-%m-%d %H:%M:%S') if log.clock_in else ''
-            co = log.clock_out.strftime('%Y-%m-%d %H:%M:%S') if log.clock_out else '-'
-            pdf.cell(0, 8, pdf_safe(f"{ci}  |  {co}"), ln=True)
+            pdf.cell(0, 6, pdf_safe(f"{dtfmt(log.clock_in)}  |  {dtfmt(log.clock_out) or '-'}"), ln=True)
 
         path = f"timelogs_{current_user.username}.pdf"
         pdf.output(path)
         return send_file(path, as_attachment=True)
 
-    # ADMIN: with optional filters (date range + employee)
+    # -------- ADMIN PDF --------
+    # Read filters
     start_date_str = request.args.get('start_date', '').strip()
     end_date_str   = request.args.get('end_date', '').strip()
     employee_q     = request.args.get('employee', '').strip()
 
     def parse_date(d):
-        try:
-            return datetime.strptime(d, "%Y-%m-%d").date()
-        except:
-            return None
+        try: return datetime.strptime(d, "%Y-%m-%d").date()
+        except: return None
 
     start_dt = end_dt = None
     if start_date_str:
@@ -1430,27 +1609,40 @@ def export_pdf():
         ed = parse_date(end_date_str)
         if ed: end_dt = datetime.combine(ed, time.max)
 
-    logs_query = (TimeLog.query
-                  .join(User, TimeLog.user_id == User.id)
-                  .options(joinedload(TimeLog.user)))
+    pdf.cell(0, 10, pdf_safe("Timecard — Admin Export"), ln=True, align='C')
+
+    # Team summary (today/week)
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 8, pdf_safe("Team Summary (Today & This Week)"), ln=True)
+    pdf.set_font('Arial', '', 10)
+    for u in User.query.order_by(User.username.asc()).all():
+        tmin, tot, wmin, wot, cnow = totals_for_user_today_and_week(u.id)
+        pdf.cell(0, 6, pdf_safe(
+            f"{u.username} — Status: {'In' if cnow else 'Out'} | Today: {tmin} (OT {tot}) | Week: {wmin} (OT {wot})"
+        ), ln=True)
+    pdf.ln(3)
+
+    # Filtered logs
+    logs_q = (TimeLog.query
+              .join(User, TimeLog.user_id == User.id)
+              .options(joinedload(TimeLog.user)))
     if employee_q:
-        logs_query = logs_query.filter(User.username.ilike(f"%{employee_q}%"))
+        logs_q = logs_q.filter(User.username.ilike(f"%{employee_q}%"))
     if start_dt and end_dt:
-        logs_query = logs_query.filter(and_(TimeLog.clock_in >= start_dt, TimeLog.clock_in <= end_dt))
+        logs_q = logs_q.filter(and_(TimeLog.clock_in >= start_dt, TimeLog.clock_in <= end_dt))
     elif start_dt:
-        logs_query = logs_query.filter(TimeLog.clock_in >= start_dt)
+        logs_q = logs_q.filter(TimeLog.clock_in >= start_dt)
     elif end_dt:
-        logs_query = logs_query.filter(TimeLog.clock_in <= end_dt)
+        logs_q = logs_q.filter(TimeLog.clock_in <= end_dt)
+    logs = logs_q.order_by(TimeLog.clock_in.desc()).all()
 
-    logs = logs_query.order_by(TimeLog.clock_in.desc()).all()
-
-    pdf.cell(0, 10, pdf_safe("Employee Time Logs"), ln=True, align='C')
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 8, pdf_safe("Filtered Time Logs"), ln=True)
     pdf.set_font('Arial', '', 10)
     for log in logs:
-        uname = log.user.username
-        ci = log.clock_in.strftime('%Y-%m-%d %H:%M:%S') if log.clock_in else ''
-        co = log.clock_out.strftime('%Y-%m-%d %H:%M:%S') if log.clock_out else '-'
-        pdf.cell(0, 8, pdf_safe(f"{uname}: {ci}  |  {co}"), ln=True)
+        pdf.cell(0, 6, pdf_safe(
+            f"{log.user.username}: {dtfmt(log.clock_in)}  |  {dtfmt(log.clock_out) or '-'}"
+        ), ln=True)
 
     path = 'timelogs_admin.pdf'
     pdf.output(path)
