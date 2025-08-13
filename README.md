@@ -12,4 +12,11 @@
 ## Default Users (for testing)
 
 - Admin: `admin / adminpass`
-- Employee: `employee1 / pass123`
+- Employee: `durgaprasad / prasadpass`
+- Employee: `prapun / prapunpass`
+- Employee: `priyanka / priyankapass`
+- Employee: `bhishma / bhishmapass`
+- Employee: `ayaan / ayaanpass`
+- Employee: `waqqas / waqqaspass`
+- Employee: `muralidhar / muralidharpass`
+

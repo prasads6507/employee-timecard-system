@@ -8,20 +8,20 @@ def add_user():
 
         # Validate role
         if role not in ['employee', 'admin']:
-            print("❌ Invalid role. Use 'employee' or 'admin'.")
+            print("Invalid role. Use 'employee' or 'admin'.")
             return
 
         # Check if username already exists
         existing = User.query.filter_by(username=username).first()
         if existing:
-            print("❌ User already exists.")
+            print("User already exists.")
             return
 
         # Add user
         new_user = User(username=username, password=password, role=role)
         db.session.add(new_user)
         db.session.commit()
-        print(f"✅ User '{username}' added successfully with role '{role}'.")
+        print(f"User '{username}' added successfully with role '{role}'.")
 
 if __name__ == '__main__':
     add_user()
